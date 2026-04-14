@@ -1,12 +1,11 @@
-from django.urls import path
-from . import views
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import PaymentViewSet, UserProfileViewSet
 
-app_name = 'users'
+router = DefaultRouter()
+router.register(r'payments', PaymentViewSet, basename='payments')
+router.register(r'profile', UserProfileViewSet, basename='profile')
 
 urlpatterns = [
-    # Здесь будут маршруты для приложения пользователей
-    # Например:
-    # path('register/', views.register, name='register'),
-    # path('login/', views.login_view, name='login'),
-    # path('profile/', views.profile, name='profile'),
+    path('', include(router.urls)),
 ]

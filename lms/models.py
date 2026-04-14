@@ -1,6 +1,6 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from users.models import User
+from django.conf import settings
 
 
 class Course(models.Model):
@@ -24,9 +24,8 @@ class Course(models.Model):
         help_text=_('Введите описание курса')
     )
     owner = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='courses',
         verbose_name=_('Владелец'),
         help_text=_('Создатель курса')
     )
@@ -72,9 +71,8 @@ class Lesson(models.Model):
         help_text=_('Курс, к которому относится урок')
     )
     owner = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='lessons',
         verbose_name=_('Владелец'),
         help_text=_('Создатель урока')
     )
