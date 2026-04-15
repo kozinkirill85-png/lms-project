@@ -26,8 +26,8 @@ class Course(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        verbose_name=_('Владелец'),
-        help_text=_('Создатель курса')
+        related_name='courses',
+        verbose_name=_('Владелец')
     )
 
     class Meta:
@@ -41,6 +41,18 @@ class Course(models.Model):
 
 class Lesson(models.Model):
     """Модель урока"""
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='lessons',
+        verbose_name=_('Курс')
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='lessons',
+        verbose_name=_('Владелец')
+    )
     title = models.CharField(
         max_length=255,
         verbose_name=_('Название'),
