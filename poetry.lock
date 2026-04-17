@@ -63,6 +63,22 @@ Django = ">=5.2"
 drf = ["djangorestframework"]
 
 [[package]]
+name = "django-perms"
+version = "2.1.0"
+description = "Syntactic sugar for handling permission functions in views, templates, and code"
+optional = false
+python-versions = "*"
+files = [
+    {file = "django-perms-2.1.0.tar.gz", hash = "sha256:24e5893381354444eade3406dc63b03b3ec1156adc84e0d0076c5546c0e158df"},
+]
+
+[package.dependencies]
+six = ">=1.11.0"
+
+[package.extras]
+dev = ["coverage", "django (>=2.0,<2.1)", "flake8", "tox"]
+
+[[package]]
 name = "djangorestframework"
 version = "3.17.1"
 description = "Web APIs for Django, made easy."
@@ -77,6 +93,20 @@ files = [
 django = ">=4.2"
 
 [[package]]
+name = "paginators"
+version = "1.0.0"
+description = "Some missing paginators for Django"
+optional = false
+python-versions = ">=3.0"
+files = [
+    {file = "paginators-1.0.0-py3-none-any.whl", hash = "sha256:499c67e00d117015b53f46fe0d727370f8421bc515d127979b717d2ac2272195"},
+    {file = "paginators-1.0.0.tar.gz", hash = "sha256:2d2d8b82bf8372c3d9ec9ebb48bffc356d34f2a180befb9edfc1a8f1cd99a2bb"},
+]
+
+[package.dependencies]
+Django = "*"
+
+[[package]]
 name = "self"
 version = "2020.12.3"
 description = "@self decorator makes method return self (jQuery-like chaining)"
@@ -88,6 +118,17 @@ files = [
 
 [package.dependencies]
 decorator = "*"
+
+[[package]]
+name = "six"
+version = "1.17.0"
+description = "Python 2 and 3 compatibility utilities"
+optional = false
+python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,>=2.7"
+files = [
+    {file = "six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"},
+    {file = "six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81"},
+]
 
 [[package]]
 name = "sqlparse"
@@ -118,4 +159,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.13"
-content-hash = "9507e6380a54b7a42dbbaa37ef57b8535fb77a0c6e4ec84e280ef3a0171f1a7f"
+content-hash = "4286238169c5aaf412d1b260a602d85d71350ec22acc1a67ca23a767ad9c8bad"
