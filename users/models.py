@@ -1,11 +1,46 @@
+from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
-from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
-from django.core.exceptions import ValidationError
+
+
+class UserManager(BaseUserManager):
+    """Кастомный менеджер для модели пользователя с авторизацией по email"""
+
+    def create_user(self, email, password=None, **extra_fields):
+        """Создание и сохранение обычного пользователя"""
+        if not email:
+            raise ValueError(_('Пользователь должен иметь адрес электронной почты'))
+
+        email = self.normalize_email(email)
+        # username генерируем автоматически из email, если не передан
+        username = extra_fields.get('username', email.split('@')[0])
+
+        user = self.model(email=email, username=username, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        """Создание и сохранение суперпользователя"""
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('is_active', True)
+
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError(_('Суперпользователь должен иметь is_staff=True.'))
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError(_('Суперпользователь должен иметь is_superuser=True.'))
+
+        # username генерируем автоматически из email
+        username = extra_fields.get('username', email.split('@')[0])
+        return self.create_user(email, password, username=username, **extra_fields)
 
 
 class User(AbstractUser):
     """Кастомная модель пользователя"""
+    # username оставляем, но делаем его необязательным для ввода
+    # он будет генерироваться автоматически из email
+
     email = models.EmailField(
         _('email address'),
         unique=True,
@@ -31,9 +66,11 @@ class User(AbstractUser):
         verbose_name=_('Аватар')
     )
 
-    # Убираем username из обязательных полей, если используете email для входа
+    # Устанавливаем email как поле для авторизации
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['username']  # username всё ещё нужен для Django admin
+    REQUIRED_FIELDS = []  # username не требуется, так как генерируется автоматически
+
+    objects = UserManager()
 
     class Meta:
         verbose_name = _('Пользователь')
@@ -41,69 +78,3 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email or self.username
-
-
-class Payment(models.Model):
-    """Модель платежа"""
-
-    PAYMENT_METHOD_CHOICES = [
-        ('cash', _('Наличные')),
-        ('transfer', _('Перевод на счёт')),
-    ]
-
-    user = models.ForeignKey(
-        'users.User',
-        on_delete=models.CASCADE,
-        verbose_name=_('Пользователь'),
-        related_name='payments'
-    )
-    payment_date = models.DateTimeField(
-        auto_now_add=True,
-        verbose_name=_('Дата оплаты')
-    )
-    course = models.ForeignKey(
-        'lms.Course',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        verbose_name=_('Оплаченный курс'),
-        related_name='payments'
-    )
-    lesson = models.ForeignKey(
-        'lms.Lesson',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        verbose_name=_('Оплаченный урок'),
-        related_name='payments'
-    )
-    amount = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        verbose_name=_('Сумма оплаты')
-    )
-    payment_method = models.CharField(
-        max_length=20,
-        choices=PAYMENT_METHOD_CHOICES,
-        default='transfer',
-        verbose_name=_('Способ оплаты')
-    )
-
-    class Meta:
-        verbose_name = _('Платёж')
-        verbose_name_plural = _('Платежи')
-        ordering = ['-payment_date']
-
-    def __str__(self):
-        if self.course:
-            return f"Платёж за курс '{self.course.title}' от {self.user.email}"
-        elif self.lesson:
-            return f"Платёж за урок '{self.lesson.title}' от {self.user.email}"
-        return f"Платёж от {self.user.email}"
-
-    def clean(self):
-        """Валидация: должен быть оплачен либо курс, либо урок, но не оба сразу"""
-        if self.course and self.lesson:
-            raise ValidationError(_('Нельзя оплатить одновременно курс и урок'))
-        if not self.course and not self.lesson:
-            raise ValidationError(_('Должен быть оплачен либо курс, либо урок'))

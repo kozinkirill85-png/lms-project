@@ -1,26 +1,16 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import (
-    CourseViewSet,
-    LessonListView,
-    LessonDetailView,
-    LessonCreateView,
-    LessonUpdateView,
-    LessonDestroyView
-)
+from .views import CourseViewSet, LessonViewSet, SubscriptionView
 
-# Роутер для курсов
+# Создаем роутер и регистрируем ViewSets
 router = DefaultRouter()
-router.register(r'courses', CourseViewSet, basename='courses')
+router.register(r'courses', CourseViewSet, basename='course')
+router.register(r'lessons', LessonViewSet, basename='lesson')
 
 urlpatterns = [
-    # Курсы через ViewSet
+    # Все маршруты для курсов и уроков через роутер
     path('', include(router.urls)),
 
-    # Уроки через Generic-классы
-    path('lessons/', LessonListView.as_view(), name='lesson-list'),
-    path('lessons/<int:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
-    path('lessons/create/', LessonCreateView.as_view(), name='lesson-create'),
-    path('lessons/<int:pk>/update/', LessonUpdateView.as_view(), name='lesson-update'),
-    path('lessons/<int:pk>/delete/', LessonDestroyView.as_view(), name='lesson-delete'),
+    # Маршрут для подписки (он не во ViewSet, поэтому прописываем вручную)
+    path('subscribe/', SubscriptionView.as_view(), name='subscribe'),
 ]
