@@ -4,15 +4,22 @@ from django.utils.translation import gettext_lazy as _
 
 
 class UserManager(BaseUserManager):
-    """Кастомный менеджер для модели пользователя с авторизацией по email"""
+    """
+    Кастомный менеджер для модели пользователя с авторизацией по email.
+    """
+    use_in_migrations = True
 
     def create_user(self, email, password=None, **extra_fields):
-        """Создание и сохранение обычного пользователя"""
+        """
+        Создает и сохраняет обычного пользователя.
+        """
         if not email:
             raise ValueError(_('Пользователь должен иметь адрес электронной почты'))
 
         email = self.normalize_email(email)
-        # username генерируем автоматически из email, если не передан
+
+        # Генерируем username из email, если он не передан явно
+        # Это нужно, так как AbstractUser требует поле username
         username = extra_fields.get('username', email.split('@')[0])
 
         user = self.model(email=email, username=username, **extra_fields)
@@ -20,8 +27,10 @@ class UserManager(BaseUserManager):
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, email, password=None, **extra_fields):
-        """Создание и сохранение суперпользователя"""
+    def create_superuser(self, email, password, **extra_fields):
+        """
+        Создает и сохраняет суперпользователя.
+        """
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('is_active', True)
@@ -31,50 +40,21 @@ class UserManager(BaseUserManager):
         if extra_fields.get('is_superuser') is not True:
             raise ValueError(_('Суперпользователь должен иметь is_superuser=True.'))
 
-        # username генерируем автоматически из email
-        username = extra_fields.get('username', email.split('@')[0])
-        return self.create_user(email, password, username=username, **extra_fields)
+        # Вызываем create_user, который мы написали выше
+        return self.create_user(email, password, **extra_fields)
 
 
 class User(AbstractUser):
-    """Кастомная модель пользователя"""
-    # username оставляем, но делаем его необязательным для ввода
-    # он будет генерироваться автоматически из email
+    """
+    Кастомная модель пользователя
+    """
+    email = models.EmailField(_('email address'), unique=True)
 
-    email = models.EmailField(
-        _('email address'),
-        unique=True,
-        blank=False,
-        null=False
-    )
-    phone = models.CharField(
-        max_length=20,
-        blank=True,
-        null=True,
-        verbose_name=_('Телефон')
-    )
-    city = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        verbose_name=_('Город')
-    )
-    avatar = models.ImageField(
-        upload_to='users/avatars/',
-        blank=True,
-        null=True,
-        verbose_name=_('Аватар')
-    )
-
-    # Устанавливаем email как поле для авторизации
+    # Указываем, что вход будет по email
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = []  # username не требуется, так как генерируется автоматически
+    REQUIRED_FIELDS = []  # username не требуется при создании
 
     objects = UserManager()
 
-    class Meta:
-        verbose_name = _('Пользователь')
-        verbose_name_plural = _('Пользователи')
-
     def __str__(self):
-        return self.email or self.username
+        return self.email

@@ -3,17 +3,24 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
+from django.utils.decorators import method_decorator
 
-from .models import Course, Lesson, Subscription
+# Для документации (drf-spectacular)
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+
+from .models import Course, Lesson, Subscription, Payment
 from .serializers import (
     CourseSerializer,
     LessonSerializer,
-    SubscriptionSerializer
+    SubscriptionSerializer,
+    PaymentCreateSerializer,
+    PaymentSerializer
 )
 from .permissions import IsModerator, IsOwner
 from .paginators import CoursePagination, LessonPagination
 
 
+@extend_schema(tags=['Courses'])
 class CourseViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления курсами.
@@ -44,15 +51,13 @@ class CourseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """
         Модераторы видят все курсы.
-        Обычные пользователи видят только свои курсы.
+        Обычные пользователи видят все курсы для просмотра, но свои для редактирования.
         """
         user = self.request.user
+        # Для list и retrieve показываем все курсы
         if self.action in ['list', 'retrieve']:
-            if user.groups.filter(name='Модераторы').exists():
-                return Course.objects.all()
-            return Course.objects.all()  # ✅ Все авторизованные могут смотреть
-
-            # Для create/update/delete - фильтруем по владельцу
+            return Course.objects.all()
+        # Для create/update/delete фильтруем по владельцу (если не модератор, но проверка есть в permissions)
         return Course.objects.filter(owner=user)
 
     def perform_create(self, serializer):
@@ -62,6 +67,7 @@ class CourseViewSet(viewsets.ModelViewSet):
         serializer.save(owner=self.request.user)
 
 
+@extend_schema(tags=['Lessons'])
 class LessonViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления уроками.
@@ -106,6 +112,7 @@ class LessonViewSet(viewsets.ModelViewSet):
         serializer.save(owner=self.request.user)
 
 
+@extend_schema(tags=['Subscriptions'])
 class SubscriptionView(APIView):
     """
     Контроллер для подписки/отписки на курс.
@@ -146,6 +153,7 @@ class SubscriptionView(APIView):
         return Response({'message': message}, status=status.HTTP_200_OK)
 
 
+@extend_schema(tags=['Subscriptions'])
 class SubscriptionListView(generics.ListAPIView):
     """
     Список подписок текущего пользователя.
@@ -155,3 +163,85 @@ class SubscriptionListView(generics.ListAPIView):
 
     def get_queryset(self):
         return Subscription.objects.filter(user=self.request.user)
+
+
+# ==========================================
+# ИНТЕГРАЦИЯ STRIPE (Оплата)
+# ==========================================
+
+@extend_schema(tags=['Payments'])
+class PaymentCreateView(generics.CreateAPIView):
+    """
+    Создание платежа с интеграцией Stripe.
+    Логика работы со Stripe находится в PaymentCreateSerializer.
+    """
+    serializer_class = PaymentCreateSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        # Автоматически привязываем текущего пользователя к платежу
+        serializer.save(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        # Переопределяем create, чтобы вернуть удобный ответ
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payment = serializer.save(user=request.user)
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            {
+                'id': payment.id,
+                'amount': payment.amount,
+                'payment_url': payment.stripe_payment_url,  # Ссылка на оплату
+                'status': payment.stripe_status,
+                'message': 'Перейдите по ссылке для оплаты'
+            },
+            status=status.HTTP_201_CREATED,
+            headers=headers
+        )
+
+
+@extend_schema(tags=['Payments'])
+class PaymentStatusView(generics.RetrieveAPIView):
+    """
+    Проверка статуса платежа (дополнительное задание).
+    Позволяет узнать, прошел ли платеж в Stripe.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = PaymentSerializer
+
+    def get_queryset(self):
+        return Payment.objects.filter(user=self.request.user)
+
+    def retrieve(self, request, *args, **kwargs):
+        from .services.stripe_service import StripeService
+
+        payment = self.get_object()
+
+        if not payment.stripe_session_id:
+            return Response(
+                {'error': 'Платеж не связан с Stripe'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Получаем актуальный статус из Stripe
+        try:
+            stripe_data = StripeService.retrieve_session(payment.stripe_session_id)
+
+            # Обновляем статус в нашей БД
+            payment.stripe_status = stripe_data['status']
+            payment.save()
+
+            return Response({
+                'payment_id': payment.id,
+                'stripe_status': stripe_data['status'],
+                'payment_status': stripe_data.get('payment_status', 'unknown'),
+                'amount_total': stripe_data.get('amount_total'),
+                'currency': stripe_data.get('currency'),
+            })
+        except Exception as e:
+            return Response(
+                {'error': f'Ошибка при получении статуса: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
