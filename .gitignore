@@ -1,5 +1,8 @@
 # Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
 *.pyc
 *.pyo
 *.pyd
@@ -25,4 +28,8 @@ ENV/
 
 # OS
 .DS_Store
-Thumbs.db
+Thumbs.db".env"
+
+
+# Secrets
+.env
