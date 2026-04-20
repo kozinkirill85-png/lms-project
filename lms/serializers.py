@@ -1,11 +1,11 @@
 from rest_framework import serializers
 from .models import Course, Lesson, Subscription, Payment
 from .validators import YouTubeURLValidator
+from .services.stripe_service import StripeService
 
 
 class LessonSerializer(serializers.ModelSerializer):
     """Сериализатор для урока"""
-    # Автоматически подставляем текущего пользователя при создании
     owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
     class Meta:
@@ -16,9 +16,7 @@ class LessonSerializer(serializers.ModelSerializer):
 
 class CourseSerializer(serializers.ModelSerializer):
     """Сериализатор для курса"""
-    # Автоматически подставляем текущего пользователя при создании
     owner = serializers.HiddenField(default=serializers.CurrentUserDefault())
-
     lessons_count = serializers.SerializerMethodField(read_only=True)
     lessons = LessonSerializer(many=True, read_only=True)
     is_subscribed = serializers.SerializerMethodField(read_only=True)
@@ -58,8 +56,6 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ['user', 'stripe_payment_url', 'stripe_status', 'status']
 
     def create(self, validated_data):
-        from .services.stripe_service import StripeService
-
         # Сохраняем платеж сначала в нашей БД
         payment = super().create(validated_data)
 

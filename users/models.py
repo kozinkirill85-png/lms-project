@@ -48,13 +48,41 @@ class User(AbstractUser):
     """
     Кастомная модель пользователя
     """
-    email = models.EmailField(_('email address'), unique=True)
+    # Поле email уникально и используется для входа
+    email = models.EmailField(
+        _('email address'),
+        unique=True,
+        blank=False,
+        null=False
+    )
+
+    # Дополнительные поля профиля
+    phone = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        verbose_name=_('Телефон')
+    )
+
+    city = models.CharField(  # ← ЭТО ПОЛЕ БЫЛО ПРОПУЩЕНО
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name=_('Город')
+    )
+
+    avatar = models.ImageField(
+        upload_to='users/avatars/',
+        blank=True,
+        null=True,
+        verbose_name=_('Аватар')
+    )
 
     # Указываем, что вход будет по email
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = []  # username не требуется при создании
+    REQUIRED_FIELDS = []  # username не требуется при создании, так как генерируется автоматически
 
     objects = UserManager()
 
     def __str__(self):
-        return self.email
+        return self.email or self.username
