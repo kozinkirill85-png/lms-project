@@ -107,6 +107,7 @@ class Lesson(models.Model):
 
 class Subscription(models.Model):
     """Модель подписки пользователя на курс"""
+    objects = None
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

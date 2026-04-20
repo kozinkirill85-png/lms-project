@@ -1,12 +1,9 @@
 from rest_framework import viewsets, generics, status
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
-from django.utils.decorators import method_decorator
-
-# Для документации (drf-spectacular)
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema
 
 from .models import Course, Lesson, Subscription, Payment
 from .serializers import (
@@ -18,6 +15,7 @@ from .serializers import (
 )
 from .permissions import IsModerator, IsOwner
 from .paginators import CoursePagination, LessonPagination
+from .services.stripe_service import StripeService
 
 
 @extend_schema(tags=['Courses'])
@@ -34,16 +32,12 @@ class CourseViewSet(viewsets.ModelViewSet):
         Назначает права доступа в зависимости от действия.
         """
         if self.action == 'create':
-            # Создание: Только обычные пользователи (модераторы не создают)
             permission_classes = [IsAuthenticated, ~IsModerator]
         elif self.action == 'destroy':
-            # Удаление: Только владелец (модераторы не удаляют)
             permission_classes = [IsAuthenticated, IsOwner]
         elif self.action in ['update', 'partial_update']:
-            # Редактирование: Модератор ИЛИ Владелец
             permission_classes = [IsAuthenticated, IsModerator | IsOwner]
         else:
-            # Просмотр (list, retrieve): Все авторизованные
             permission_classes = [IsAuthenticated]
 
         return [permission() for permission in permission_classes]
@@ -51,13 +45,11 @@ class CourseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """
         Модераторы видят все курсы.
-        Обычные пользователи видят все курсы для просмотра, но свои для редактирования.
+        Обычные пользователи видят все курсы для просмотра.
         """
         user = self.request.user
-        # Для list и retrieve показываем все курсы
         if self.action in ['list', 'retrieve']:
             return Course.objects.all()
-        # Для create/update/delete фильтруем по владельцу (если не модератор, но проверка есть в permissions)
         return Course.objects.filter(owner=user)
 
     def perform_create(self, serializer):
@@ -81,16 +73,12 @@ class LessonViewSet(viewsets.ModelViewSet):
         Назначает права доступа в зависимости от действия.
         """
         if self.action == 'create':
-            # Создание: Только обычные пользователи
             permission_classes = [IsAuthenticated, ~IsModerator]
         elif self.action == 'destroy':
-            # Удаление: Только владелец
             permission_classes = [IsAuthenticated, IsOwner]
         elif self.action in ['update', 'partial_update']:
-            # Редактирование: Модератор ИЛИ Владелец
             permission_classes = [IsAuthenticated, IsModerator | IsOwner]
         else:
-            # Просмотр
             permission_classes = [IsAuthenticated]
 
         return [permission() for permission in permission_classes]
@@ -116,7 +104,6 @@ class LessonViewSet(viewsets.ModelViewSet):
 class SubscriptionView(APIView):
     """
     Контроллер для подписки/отписки на курс.
-    Доступен только авторизованным пользователям.
     """
     permission_classes = [IsAuthenticated]
 
@@ -135,18 +122,13 @@ class SubscriptionView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Получаем курс или возвращаем 404, если его нет
         course = get_object_or_404(Course, id=course_id)
-
-        # Ищем существующую подписку
         subscription = Subscription.objects.filter(user=user, course=course).first()
 
         if subscription:
-            # Если подписка есть - удаляем её
             subscription.delete()
             message = 'Вы успешно отписались от курса.'
         else:
-            # Если подписки нет - создаем её
             Subscription.objects.create(user=user, course=course)
             message = 'Вы успешно подписались на обновления курса.'
 
@@ -165,25 +147,18 @@ class SubscriptionListView(generics.ListAPIView):
         return Subscription.objects.filter(user=self.request.user)
 
 
-# ==========================================
-# ИНТЕГРАЦИЯ STRIPE (Оплата)
-# ==========================================
-
 @extend_schema(tags=['Payments'])
 class PaymentCreateView(generics.CreateAPIView):
     """
     Создание платежа с интеграцией Stripe.
-    Логика работы со Stripe находится в PaymentCreateSerializer.
     """
     serializer_class = PaymentCreateSerializer
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        # Автоматически привязываем текущего пользователя к платежу
         serializer.save(user=self.request.user)
 
     def create(self, request, *args, **kwargs):
-        # Переопределяем create, чтобы вернуть удобный ответ
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payment = serializer.save(user=request.user)
@@ -193,7 +168,7 @@ class PaymentCreateView(generics.CreateAPIView):
             {
                 'id': payment.id,
                 'amount': payment.amount,
-                'payment_url': payment.stripe_payment_url,  # Ссылка на оплату
+                'payment_url': payment.stripe_payment_url,
                 'status': payment.stripe_status,
                 'message': 'Перейдите по ссылке для оплаты'
             },
@@ -205,8 +180,7 @@ class PaymentCreateView(generics.CreateAPIView):
 @extend_schema(tags=['Payments'])
 class PaymentStatusView(generics.RetrieveAPIView):
     """
-    Проверка статуса платежа (дополнительное задание).
-    Позволяет узнать, прошел ли платеж в Stripe.
+    Проверка статуса платежа.
     """
     permission_classes = [IsAuthenticated]
     serializer_class = PaymentSerializer
@@ -215,8 +189,6 @@ class PaymentStatusView(generics.RetrieveAPIView):
         return Payment.objects.filter(user=self.request.user)
 
     def retrieve(self, request, *args, **kwargs):
-        from .services.stripe_service import StripeService
-
         payment = self.get_object()
 
         if not payment.stripe_session_id:
@@ -225,11 +197,9 @@ class PaymentStatusView(generics.RetrieveAPIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Получаем актуальный статус из Stripe
         try:
             stripe_data = StripeService.retrieve_session(payment.stripe_session_id)
 
-            # Обновляем статус в нашей БД
             payment.stripe_status = stripe_data['status']
             payment.save()
 
