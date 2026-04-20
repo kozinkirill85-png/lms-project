@@ -3,7 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from .models import Course, Lesson, Subscription, Payment
 from .serializers import (
@@ -15,10 +15,14 @@ from .serializers import (
 )
 from .permissions import IsModerator, IsOwner
 from .paginators import CoursePagination, LessonPagination
-from .services.stripe_service import StripeService
+from .tasks import notify_subscribers_about_course_update
 
 
-@extend_schema(tags=['Courses'])
+@extend_schema(
+    tags=['Courses'],
+    summary='Управление курсами',
+    description='ViewSet для полного CRUD управления курсами'
+)
 class CourseViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления курсами.
@@ -32,12 +36,16 @@ class CourseViewSet(viewsets.ModelViewSet):
         Назначает права доступа в зависимости от действия.
         """
         if self.action == 'create':
+            # Создание: Только обычные пользователи (модераторы не создают)
             permission_classes = [IsAuthenticated, ~IsModerator]
         elif self.action == 'destroy':
+            # Удаление: Только владелец (модераторы не удаляют)
             permission_classes = [IsAuthenticated, IsOwner]
         elif self.action in ['update', 'partial_update']:
+            # Редактирование: Модератор ИЛИ Владелец
             permission_classes = [IsAuthenticated, IsModerator | IsOwner]
         else:
+            # Просмотр (list, retrieve): Все авторизованные
             permission_classes = [IsAuthenticated]
 
         return [permission() for permission in permission_classes]
@@ -58,8 +66,49 @@ class CourseViewSet(viewsets.ModelViewSet):
         """
         serializer.save(owner=self.request.user)
 
+    def perform_update(self, serializer):
+        """
+        Обновляет курс и запускает задачу уведомления подписчиков.
+        """
+        course = self.get_object()
+        serializer.save()
 
-@extend_schema(tags=['Lessons'])
+        # Запускаем асинхронную задачу уведомления подписчиков
+        notify_subscribers_about_course_update.delay(course.id)
+
+    @extend_schema(
+        summary='Обновление курса',
+        description='Обновляет курс и автоматически уведомляет подписчиков об изменениях'
+    )
+    def update(self, request, *args, **kwargs):
+        """
+        Полное обновление курса с отправкой уведомлений.
+        """
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary='Частичное обновление курса',
+        description='Частично обновляет курс и автоматически уведомляет подписчиков'
+    )
+    def partial_update(self, request, *args, **kwargs):
+        """
+        Частичное обновление курса с отправкой уведомлений.
+        """
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
+
+
+@extend_schema(
+    tags=['Lessons'],
+    summary='Управление уроками',
+    description='ViewSet для полного CRUD управления уроками'
+)
 class LessonViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления уроками.
@@ -73,12 +122,16 @@ class LessonViewSet(viewsets.ModelViewSet):
         Назначает права доступа в зависимости от действия.
         """
         if self.action == 'create':
+            # Создание: Только обычные пользователи
             permission_classes = [IsAuthenticated, ~IsModerator]
         elif self.action == 'destroy':
+            # Удаление: Только владелец
             permission_classes = [IsAuthenticated, IsOwner]
         elif self.action in ['update', 'partial_update']:
+            # Редактирование: Модератор ИЛИ Владелец
             permission_classes = [IsAuthenticated, IsModerator | IsOwner]
         else:
+            # Просмотр
             permission_classes = [IsAuthenticated]
 
         return [permission() for permission in permission_classes]
@@ -99,11 +152,26 @@ class LessonViewSet(viewsets.ModelViewSet):
         """
         serializer.save(owner=self.request.user)
 
+    def perform_update(self, serializer):
+        """
+        Обновляет урок и запускает задачу уведомления подписчиков курса.
+        """
+        lesson = self.get_object()
+        serializer.save()
 
-@extend_schema(tags=['Subscriptions'])
+        # Уведомляем подписчиков курса об обновлении урока
+        notify_subscribers_about_course_update.delay(lesson.course.id)
+
+
+@extend_schema(
+    tags=['Subscriptions'],
+    summary='Подписка/отписка на курс',
+    description='Переключатель подписки: если подписка есть - удаляет, если нет - создает'
+)
 class SubscriptionView(APIView):
     """
     Контроллер для подписки/отписки на курс.
+    Доступен только авторизованным пользователям.
     """
     permission_classes = [IsAuthenticated]
 
@@ -135,7 +203,11 @@ class SubscriptionView(APIView):
         return Response({'message': message}, status=status.HTTP_200_OK)
 
 
-@extend_schema(tags=['Subscriptions'])
+@extend_schema(
+    tags=['Subscriptions'],
+    summary='Список моих подписок',
+    description='Возвращает список всех подписок текущего пользователя'
+)
 class SubscriptionListView(generics.ListAPIView):
     """
     Список подписок текущего пользователя.
@@ -147,7 +219,11 @@ class SubscriptionListView(generics.ListAPIView):
         return Subscription.objects.filter(user=self.request.user)
 
 
-@extend_schema(tags=['Payments'])
+@extend_schema(
+    tags=['Payments'],
+    summary='Создание платежа',
+    description='Создает платеж с интеграцией Stripe и возвращает ссылку на оплату'
+)
 class PaymentCreateView(generics.CreateAPIView):
     """
     Создание платежа с интеграцией Stripe.
@@ -177,7 +253,11 @@ class PaymentCreateView(generics.CreateAPIView):
         )
 
 
-@extend_schema(tags=['Payments'])
+@extend_schema(
+    tags=['Payments'],
+    summary='Проверка статуса платежа',
+    description='Проверяет статус платежа в Stripe и возвращает актуальную информацию'
+)
 class PaymentStatusView(generics.RetrieveAPIView):
     """
     Проверка статуса платежа.
@@ -189,6 +269,8 @@ class PaymentStatusView(generics.RetrieveAPIView):
         return Payment.objects.filter(user=self.request.user)
 
     def retrieve(self, request, *args, **kwargs):
+        from .services.stripe_service import StripeService
+
         payment = self.get_object()
 
         if not payment.stripe_session_id:
@@ -200,6 +282,7 @@ class PaymentStatusView(generics.RetrieveAPIView):
         try:
             stripe_data = StripeService.retrieve_session(payment.stripe_session_id)
 
+            # Обновляем статус в нашей БД
             payment.stripe_status = stripe_data['status']
             payment.save()
 
